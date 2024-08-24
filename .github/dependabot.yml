@@ -1,0 +1,35 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "exclude"
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    labels:
+      - "dependencies"
+    schedule:
+      interval: "weekly"
+    groups:
+      kube:
+        patterns:
+          - kube
+          - k8s-openapi
+      core:
+        patterns:
+          - serde
+          - serde_*
+          - serde-*
+          - thiserror
+          - tokio
+          - typed-builder
+          - clap
+          - clap-*
+          - clap_*
+          - schemars
+      rest:
+        patterns:
+          - .*
