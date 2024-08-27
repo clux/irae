@@ -1,12 +1,11 @@
-use crate::Rollout;
-use crate::{Error, Result};
+use crate::{version_label, Error, Kind, Result, Rollout};
 
 use k8s_openapi::api::{
     apps::v1::{Deployment, ReplicaSet, StatefulSet},
     core::v1::{Container, Pod, PodTemplateSpec},
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time as K8sTime;
-use kube::core::{NamespaceResourceScope, ObjectList};
+use kube::core::{NamespaceResourceScope, ObjectList, Selector};
 use kube::{api::ListParams, Api, Resource, ResourceExt};
 use semver::Version;
 use serde::de::DeserializeOwned;
@@ -21,17 +20,39 @@ impl Rollout {
     where
         K: Resource<Scope = NamespaceResourceScope, DynamicType = ()> + Clone + DeserializeOwned,
     {
-        Api::namespaced(self.client.clone(), &self.namespace.clone())
+        if let Some(ns) = &self.namespace {
+            Api::namespaced(self.client.clone(), ns)
+        } else {
+            Api::default_namespaced(self.client.clone())
+        }
     }
-    /*async fn get_rs_by_app(&self) -> Result<ObjectList<ReplicaSet>> {
-        let lp = ListParams::default().labels(&format!("app={}", self.app));
-        Ok(self.ns().list(&lp).await.map_err(Error::Kube)?)
-    }*/
-    pub async fn get_rs_by_template_hash(&self, hash: &str) -> Result<Option<ReplicaSet>> {
-        let lp = ListParams::default().labels(&format!("app={},pod-template-hash={}", self.name, hash));
+    /// Determine the currently leading replicaset
+    ///
+    /// Use standard label app.kubernetes.io/version to determine replicaset to track
+    /// This is flawed in cases of rollbacks (where older versions' sets may be reclaimed)
+    /// ..but need a more dedicated label to target otherwise
+    pub async fn get_highest_version_replicaset(&self, selector: &Selector) -> Result<Option<ReplicaSet>> {
+        // NB: replicaset selectors are based on the deployment selectors with an extra template hash
+        let lp = ListParams::default().labels_from(&selector);
+        let sets = self.ns().list(&lp).await.map_err(Error::Kube)?;
+        let mut max_ver = semver::Version::new(0, 0, 0);
+        let mut best = None;
+        for rs in sets {
+            let v = version_label(&rs)?;
+            if v > max_ver {
+                max_ver = v;
+                best = Some(rs)
+            }
+        }
+        Ok(best)
+    }
+    pub async fn get_rs(&self, selector: &Selector) -> Result<Option<ReplicaSet>> {
+        let lp = ListParams::default().labels_from(&selector);
         let rs = self.ns().list(&lp).await.map_err(Error::Kube)?;
+        assert_eq!(rs.items.len(), 1, "only one matching replicaset candidate");
         Ok(rs.items.first().cloned())
     }
+
     pub async fn get_deploy(&self) -> Result<Deployment> {
         let deploy = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(deploy)
@@ -64,18 +85,28 @@ pub struct Outcome {
     pub ok: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct State {
+    /// Template hash identifying child objects (such as replicasets)
+    pub hash: Option<String>,
+    /// Replica count to track
+    pub min_replicas: u32,
+    /// Moving selector to track (sometimes targets change before finishing)
+    pub selector: Selector,
+}
+
 impl Rollout {
     /// Track a rollout and retun its current `Outcome`
-    pub async fn status(&self, hash: &Option<String>) -> Result<Outcome> {
-        match self.workload.as_ref() {
-            "Deployment" => rollout_status_deploy(self, hash).await,
-            "StatefulSet" => rollout_status_statefulset(self, hash).await,
+    pub async fn status(&self, state: &State) -> Result<Outcome> {
+        match self.workload {
+            Kind::Deployment => rollout_status_deploy(self, state).await,
+            Kind::StatefulSet => rollout_status_statefulset(self, state).await,
             _ => bail!("No rollout tracking implemented for {x}"),
         }
     }
 }
 
-async fn rollout_status_deploy(r: &Rollout, hash: &Option<String>) -> Result<Outcome> {
+async fn rollout_status_deploy(r: &Rollout, state: &State) -> Result<Outcome> {
     // Get root data from Deployment status
     let deploy = r.get_deploy().await?;
     let name = deploy.name_any();
@@ -84,10 +115,10 @@ async fn rollout_status_deploy(r: &Rollout, hash: &Option<String>) -> Result<Out
     // Wait for at least the minimum number...
 
     let mut accurate_progress = None; // accurate progress number
-    let mut minimum = r.min_replicas; // minimum replicas we wait for
-    if let Some(tpl_hash) = hash {
+    let mut minimum = state.min_replicas; // minimum replicas we wait for
+    if let Some(tpl_hash) = &state.hash {
         // Infer from pinned ReplicaSet status (that was latest during apply)
-        if let Some(rs) = r.get_rs_by_template_hash(tpl_hash).await? {
+        if let Some(rs) = r.get_rs(&state.selector).await? {
             let r = ReplicaSetSummary::try_from(rs)?;
             debug!("{name}: {r:?}");
             accurate_progress = Some(r.ready);
@@ -141,15 +172,15 @@ async fn rollout_status_deploy(r: &Rollout, hash: &Option<String>) -> Result<Out
     })
 }
 
-async fn rollout_status_statefulset(r: &Rollout, hash: &Option<String>) -> Result<Outcome> {
+async fn rollout_status_statefulset(r: &Rollout, state: &State) -> Result<Outcome> {
     let ss = r.get_statefulset().await?;
     let s = StatefulSummary::try_from(ss)?;
-    let minimum = r.min_replicas;
+    let minimum = state.min_replicas;
 
     let ok = s.updated_replicas
         >= i32::try_from(minimum).expect("min number of replicas should have been within bounds of a i32")
         && s.updated_replicas == s.ready
-        && s.update_revision == *hash;
+        && s.update_revision == state.hash;
     let message = if ok {
         None
     } else {

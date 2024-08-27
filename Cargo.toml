@@ -20,6 +20,18 @@ bin-dir = "irae-{ target }/{ bin }{ format }"
 name = "irae"
 path = "src/lib.rs"
 
+[[bin]]
+name = "irt"
+required-features = ["term"]
+path = "src/bin/irt.rs"
+
+[features]
+# term def while developing because otherwise LSP is annoyingly bad
+# should ideally not have this on during library publish, so lib users do not have to pull in cli deps
+# maybe factor into workspace later instead
+default = ["term"]
+term = ["indicatif", "tracing-subscriber", "clap", "clap_complete", "anyhow"]
+
 [dependencies]
 tokio = { version = "1.38.1", features = ["full"] }
 serde = { version = "1.0.204", features = ["derive"] }
@@ -31,4 +43,9 @@ chrono = { version = "0.4.38", default-features = false }
 time = { version = "0.3.36", features = ["serde-well-known", "macros"] }
 semver = "1.0.23"
 k8s-openapi = { version = "0.22.0", features = ["latest"] }
+indicatif = { version = "0.17.8", optional = true }
 tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", optional = true }
+clap = { version = "4.5", features = ["cargo", "derive"], optional = true }
+clap_complete = { version = "4.5", optional = true }
+anyhow = { version = "1.0.86", optional = true }

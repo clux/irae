@@ -1,3 +1,5 @@
+use kube::{Resource, ResourceExt};
+use semver::Version;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +15,9 @@ pub enum Error {
 
     #[error("IllegalDocument")]
     IllegalDocument,
+
+    #[error("Non-semver app.kubernetes.io/version: {0}")]
+    NonSemverVersion(String),
 
     #[error("K8s Invariant Error: {0}")]
     KubeInvariant(String),
@@ -33,21 +38,41 @@ impl Error {
 
 // mod debug;
 mod rollout;
-mod term;
+pub use rollout::{DeploySummary, State, StatefulSummary};
+mod estimate;
+pub use estimate::RolloutStrategy;
+mod infer;
+#[cfg(feature = "term")]
+pub mod term;
 
-/// A workload rollout to track
+pub fn version_label<K: Resource>(k: &K) -> Result<Version> {
+    if let Some(v) = k.labels().get("app.kubernetes.io/version") {
+        let sem = Version::parse(v.as_ref()).map_err(|e| Error::NonSemverVersion(format!("{v}: {e}")))?;
+        Ok(sem)
+    } else {
+        Err(Error::NonSemverVersion(format!("missing label")))
+    }
+}
+
+/// A workload rollout to track with minimal user information
 #[derive(Clone)]
 pub struct Rollout {
     /// The workload name to be tracked
     pub name: String,
-    /// The namespace it lives in
-    pub namespace: String,
+    /// The namespace of workload (if different than context namespace)
+    pub namespace: Option<String>,
     /// The type of workload it is
-    pub workload: String,
-    /// The minimal amount of replicas to wait for
-    pub min_replicas: u32, // replicaCount or hpa.minReplicas if autoscaling
+    pub workload: Kind,
     /// Kubernetes interface
     pub client: kube::Client,
+}
+/// Support kinds to track rollouts for
+#[derive(Clone, Debug)]
+pub enum Kind {
+    Deployment,
+    StatefulSet,
+    //DaemonSet
+    //Kustomization
 }
 
 #[cfg(test)]
