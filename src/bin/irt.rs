@@ -1,4 +1,4 @@
-use irae::{Error, Result};
+use irae::Result;
 use irae::{Kind, Rollout};
 use std::str::FromStr;
 
@@ -17,15 +17,21 @@ impl FromStr for Workload {
     type Err = anyhow::Error;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        // TODO normal slash parsing
-        //if let Some((target, derived_trait)) = value.split_once('=') {
         let lower = value.to_ascii_lowercase();
         let split = lower.splitn(3, '/').collect::<Vec<_>>();
         match split.as_slice() {
-            [ns, kind, name] => Ok(Self::Deployment(name.to_string(), Some(ns.to_string()))),
-            [kind, name] => Ok(Self::Deployment(name.to_string(), None)),
-            //"deployment" | "deploy" => Ok(Self::Deployment),
-            //"statefulset" | "sts" => Ok(Self::StatefulSet),
+            [ns, kind, name] => match kind.as_ref() {
+                "deploy" | "deployment" => Ok(Self::Deployment(name.to_string(), Some(ns.to_string()))),
+                "sts" | "statefulset" => Ok(Self::StatefulSet(name.to_string(), Some(ns.to_string()))),
+                "ds" | "daemonset" => Ok(Self::DaemonSet(name.to_string(), Some(ns.to_string()))),
+                _ => anyhow::bail!("unknown kind"),
+            },
+            [kind, name] => match kind.as_ref() {
+                "deploy" | "deployment" => Ok(Self::Deployment(name.to_string(), None)),
+                "sts" | "statefulset" => Ok(Self::StatefulSet(name.to_string(), None)),
+                "ds" | "daemonset" => Ok(Self::DaemonSet(name.to_string(), None)),
+                _ => anyhow::bail!("unknown kind"),
+            },
             _ => anyhow::bail!("unknown workload. typo? we support deploy + sts"),
         }
     }
@@ -93,8 +99,10 @@ async fn handle_track(args: TrackArgs) -> Result<()> {
             workload: kind,
             client: client.clone(),
         };
-        let outcome = irae::term::workload_rollout(&r).await?;
-        println!("outcome: {outcome:?}");
+        let (outcome, state) = irae::term::workload_rollout(&r).await?;
+        if !outcome {
+            r.debug(&state).await?;
+        }
     }
     Ok(())
 }

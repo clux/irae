@@ -36,12 +36,13 @@ impl Error {
     }
 }
 
-// mod debug;
+mod debug;
 mod rollout;
 pub use rollout::{DeploySummary, State, StatefulSummary};
-mod estimate;
+pub mod estimate;
 pub use estimate::RolloutStrategy;
 mod infer;
+pub use infer::Inference;
 #[cfg(feature = "term")]
 pub mod term;
 
@@ -71,7 +72,7 @@ pub struct Rollout {
 pub enum Kind {
     Deployment,
     StatefulSet,
-    //DaemonSet
+    DaemonSet,
     //Kustomization
 }
 

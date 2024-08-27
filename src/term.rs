@@ -1,51 +1,59 @@
-use crate::{DeploySummary, Kind, Rollout, State, StatefulSummary};
+use crate::{estimate, Kind, Rollout, State, StatefulSummary};
 use crate::{Error, Result};
 use indicatif::{ProgressBar, ProgressStyle};
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use kube::core::{Expression, Selector};
-use kube::{Resource, ResourceExt};
+use kube::ResourceExt;
 use std::time::Duration;
 use tokio::time::sleep;
+#[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
 // ----------------------------------------------------------------------------
 // indicatif tracker loop
 
 /// Track the rollout of the main workload
-pub async fn workload_rollout(r: &Rollout) -> Result<bool> {
+///
+/// This is currently designed to be called right after a kubectl apply
+/// and may need modifications
+pub async fn workload_rollout(r: &Rollout) -> Result<(bool, State)> {
     // 1. need to infer properties from the workload first to get information about how to track
     let params = r.infer_parameters().await?;
-    // still need min replicas for cycles? if so then we also need to look at HPAs..
-    // probabl enough these days to JUST Look at readyReplicas / updatedReplicas in .status
-    // NEED: properties for wait time, selector for replicaset identification
-    let waittime = 300; // TODO: hook up estimate_wait_time from estimate
+    // 2. use parameters to estimate how long to wait for an upgrade
+    let waittime = estimate::wait_time(&params);
+    // 3. Prepare state, selectors
     let poll_duration = std::time::Duration::from_millis(1000);
     let name = r.name.clone();
     let mut state = State {
-        min_replicas: params.min_replicas.unwrap_or(2), // TODO: maybe update during?
+        min_replicas: params.min_replicas, // TODO: maybe update during?
         hash: None,
         selector: Selector::default(),
     };
+    // 4. Use found pod selector on workload to look for child objects
     let deployment_selector: Selector = params
         .selector
         .try_into()
         .map_err(|e| Error::KubeInvariant(format!("malformed label selector: {e}")))?;
     state.selector.extend(deployment_selector);
 
+    // 5. Check if we need to actually need to do something first
     match r.status(&state).await {
         Ok(rr) => {
             if rr.ok {
-                return Ok(true);
+                return Ok((true, state));
             } else {
                 debug!("Ignoring rollout failure right after upgrade")
             }
         }
         Err(e) => warn!("Ignoring rollout failure right after upgrade: {}", e),
     };
-
+    // Wait for the api server to accept the yaml
     sleep(poll_duration).await;
-    // TODO: Don't count until image has been pulled + handle unscheduleble
+
+    // 6. Determine child objects for the rollout we are following
+    // This is not always sound (multiple upgrades may clash with each other)
+    // A smarter algorithm might change replicasets mid tracking to account for this.
     info!("Waiting {waittime}s for {name} to rollout (not ready yet)",);
+    // TODO: handle unscheduleble?
     match r.workload {
         Kind::Deployment => {
             // Attempt to find an owning RS hash to track
@@ -67,6 +75,7 @@ pub async fn workload_rollout(r: &Rollout) -> Result<bool> {
                 state.hash = Some(ur);
             }
         }
+        Kind::DaemonSet => unimplemented!(),
     }
 
     let pb = ProgressBar::new(state.min_replicas as u64);
@@ -80,6 +89,7 @@ pub async fn workload_rollout(r: &Rollout) -> Result<bool> {
         match r.workload {
             Kind::Deployment => pb.set_prefix(format!("{name}-{h}")),
             Kind::StatefulSet => pb.set_prefix(h), // statefulset hash already prefixes name
+            Kind::DaemonSet => pb.set_prefix(h),   // TODO: test
         }
     } else {
         pb.set_prefix(name);
@@ -103,8 +113,8 @@ pub async fn workload_rollout(r: &Rollout) -> Result<bool> {
         pb.set_position(rr.progress.into());
         if rr.ok {
             pb.finish();
-            return Ok(true);
+            return Ok((true, state));
         }
     }
-    Ok(false) // timeout
+    Ok((false, state)) // timeout
 }

@@ -1,17 +1,21 @@
 use crate::{version_label, Error, Kind, Result, Rollout};
 
 use k8s_openapi::api::{
-    apps::v1::{Deployment, ReplicaSet, StatefulSet},
+    apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
     core::v1::{Container, Pod, PodTemplateSpec},
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time as K8sTime;
-use kube::core::{NamespaceResourceScope, ObjectList, Selector};
-use kube::{api::ListParams, Api, Resource, ResourceExt};
+use kube::{
+    api::{ListParams, LogParams},
+    core::{NamespaceResourceScope, ObjectList, Selector},
+    Api, Resource, ResourceExt,
+};
 use semver::Version;
 use serde::de::DeserializeOwned;
-use std::fmt::{self, Debug};
-use std::time::Instant;
-use time::{ext::InstantExt, Duration};
+//use std::time::Instant;
+//use time::{ext::InstantExt, Duration};
+use time::Duration;
+#[allow(unused_imports)]
 use tracing::{debug, error, info, warn};
 
 // helpers to do kube api queries
@@ -53,6 +57,12 @@ impl Rollout {
         Ok(rs.items.first().cloned())
     }
 
+    pub async fn get_pods(&self, selector: &Selector) -> Result<ObjectList<Pod>> {
+        let lp = ListParams::default().labels_from(&selector);
+        let pods = self.ns().list(&lp).await.map_err(Error::Kube)?;
+        Ok(pods)
+    }
+
     pub async fn get_deploy(&self) -> Result<Deployment> {
         let deploy = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(deploy)
@@ -60,6 +70,20 @@ impl Rollout {
     pub async fn get_statefulset(&self) -> Result<StatefulSet> {
         let sts = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(sts)
+    }
+    pub async fn get_daemonset(&self) -> Result<DaemonSet> {
+        let sts = self.ns().get(&self.name).await.map_err(Error::Kube)?;
+        Ok(sts)
+    }
+
+    pub async fn get_pod_logs(&self, podname: &str) -> Result<String> {
+        let lp = LogParams {
+            tail_lines: Some(30),
+            container: Some(self.name.to_string()),
+            ..Default::default()
+        };
+        let logs = self.ns::<Pod>().logs(podname, &lp).await.map_err(Error::Kube)?;
+        Ok(logs)
     }
 }
 
@@ -101,7 +125,7 @@ impl Rollout {
         match self.workload {
             Kind::Deployment => rollout_status_deploy(self, state).await,
             Kind::StatefulSet => rollout_status_statefulset(self, state).await,
-            _ => bail!("No rollout tracking implemented for {x}"),
+            Kind::DaemonSet => rollout_status_daemonset(self, state).await,
         }
     }
 }
@@ -116,7 +140,7 @@ async fn rollout_status_deploy(r: &Rollout, state: &State) -> Result<Outcome> {
 
     let mut accurate_progress = None; // accurate progress number
     let mut minimum = state.min_replicas; // minimum replicas we wait for
-    if let Some(tpl_hash) = &state.hash {
+    if state.hash.is_some() {
         // Infer from pinned ReplicaSet status (that was latest during apply)
         if let Some(rs) = r.get_rs(&state.selector).await? {
             let r = ReplicaSetSummary::try_from(rs)?;
@@ -207,6 +231,30 @@ async fn rollout_status_statefulset(r: &Rollout, state: &State) -> Result<Outcom
     })
 }
 
+// daemonset experimental
+async fn rollout_status_daemonset(r: &Rollout, state: &State) -> Result<Outcome> {
+    let ds = r.get_daemonset().await?;
+    let s = DaemonSummary::try_from(ds)?;
+    let minimum = state.min_replicas;
+
+    let ok = s.desired
+        >= i32::try_from(minimum).expect("min number of replicas should have been within bounds of a i32")
+        && Some(s.desired) == s.updated;
+    let message = if ok {
+        None
+    } else {
+        Some("Daemonset update in progress".to_string())
+    };
+    Ok(Outcome {
+        progress: std::cmp::max(0, s.updated.unwrap_or(s.ready))
+            .try_into()
+            .expect("sts.updated_replicas >= 0"),
+        expected: minimum,
+        message,
+        ok,
+    })
+}
+
 // ----------------------------------------------------------------------------
 // misc formatting helpers
 
@@ -269,6 +317,7 @@ fn find_default_in_rs(rs: &PodTemplateSpec) -> Option<String> {
 // pod inspection - currently unused
 
 /// A summary of a Pod's status
+#[derive(Debug)]
 pub struct PodSummary {
     /// Name of the pod inspected
     pub name: String,
@@ -464,6 +513,33 @@ impl TryFrom<StatefulSet> for StatefulSummary {
             current_replicas: status.current_replicas.unwrap_or(0),
             update_revision: status.update_revision,
             updated_replicas: status.updated_replicas.unwrap_or(0),
+        })
+    }
+}
+
+// ----------------------------------------------------------------------------
+// daemonset inspection
+
+/// A summary of a Daemonset's status
+pub struct DaemonSummary {
+    pub ready: i32,
+    pub desired: i32,
+    pub updated: Option<i32>,
+}
+
+impl TryFrom<DaemonSet> for DaemonSummary {
+    type Error = Error;
+
+    /// Helper to convert the openapi Statefulset to the useful info
+    fn try_from(d: DaemonSet) -> Result<DaemonSummary> {
+        let Some(status) = d.status else {
+            Err(Error::KubeInvariant("Missing statefulset status".to_string()))?
+        };
+        // NB: No good message in statefulset conditions.. need to look at events to get one
+        Ok(DaemonSummary {
+            ready: status.number_ready,
+            desired: status.desired_number_scheduled,
+            updated: status.updated_number_scheduled,
         })
     }
 }

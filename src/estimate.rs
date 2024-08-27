@@ -1,3 +1,4 @@
+use crate::Inference;
 use k8s_openapi::api::apps::v1::RollingUpdateDaemonSet as DsStrategy;
 use k8s_openapi::api::apps::v1::RollingUpdateDeployment as DeployStrategy;
 use k8s_openapi::api::apps::v1::RollingUpdateStatefulSetStrategy as StsStrategy;
@@ -163,39 +164,16 @@ impl RolloutStrategy {
     }
 }
 
-/// Information needed to calculate a semi-accurate wait time
-#[derive(Default, Clone, Debug)]
-pub struct WaitParams {
-    /// Rolling Update Paramteres from the workload
-    ///
-    /// Used to analytically determine how many iterations is needed to roll out
-    ///
-    /// - k8s_openapi::api::apps::v1::RollingUpdateDeployment
-    /// - k8s_openapi::api::apps::v1::RollingUpdateDaemonSet
-    rolling_update: Option<RolloutStrategy>,
-    /// Number of replicas to wait for
-    min_replicas: u32,
-    /// The image size in megabytes
-    ///
-    /// Defaults to 512MB as a guess
-    /// Scales the pulltime estimate based on relative difference with default.
-    image_size: Option<u32>,
-    /// The number of seconds to wait for readiness probes
-    ///
-    /// Defaults to 30s as a guess
-    initial_delay_seconds: Option<u32>,
-}
-
 /// Estimate how long to wait for a kube rolling upgrade
 ///
 /// Was used by helm, now used by the internal upgrade wait time.
 /// Elide this fn, by using 300s as a default wait time (as per helm upgrade)
-pub fn estimate_wait_time(wp: &WaitParams) -> u32 {
-    let size = wp.image_size.unwrap_or(512);
-    // TODO: maybe expose parameters
-    // 512 default => extra 90s wait, then 90s per half gig...
+pub fn wait_time(wp: &Inference) -> u32 {
+    let size = 512; // can't detect image size so just assume 512MB as a default
+                    // TODO: maybe expose parameters
+                    // 512 default => extra 90s wait, then 90s per half gig...
     let pulltime_est = std::cmp::max(60, ((f64::from(size) * 90.0) / 512.0) as u32);
-    let ru = wp.rolling_update.clone().unwrap_or_default();
+    let ru = wp.strategy.clone().unwrap_or_default();
     let iterations = ru.rollout_iterations(wp.min_replicas); // precise if rollingupdate values are
 
     trace!("estimating wait for {iterations} cycle rollout: size={size} (est={pulltime_est})",);
