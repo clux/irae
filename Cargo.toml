@@ -30,7 +30,7 @@ path = "src/bin/irt.rs"
 # should ideally not have this on during library publish, so lib users do not have to pull in cli deps
 # maybe factor into workspace later instead
 default = ["term"]
-term = ["indicatif", "tracing-subscriber", "clap", "clap_complete", "anyhow"]
+term = ["indicatif", "tracing-subscriber", "clap", "clap_complete", "anyhow", "libc"]
 
 [dependencies]
 tokio = { version = "1.38.1", features = ["full"] }
@@ -49,3 +49,4 @@ tracing-subscriber = { version = "0.3.18", optional = true }
 clap = { version = "4.5", features = ["cargo", "derive"], optional = true }
 clap_complete = { version = "4.5", optional = true }
 anyhow = { version = "1.0.86", optional = true }
+libc = { version = "0.2.155", optional = true }

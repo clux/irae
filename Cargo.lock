@@ -798,6 +798,7 @@ dependencies = [
  "indicatif",
  "k8s-openapi",
  "kube",
+ "libc",
  "semver",
  "serde",
  "serde_json",

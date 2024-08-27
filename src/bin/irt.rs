@@ -19,20 +19,16 @@ impl FromStr for Workload {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let lower = value.to_ascii_lowercase();
         let split = lower.splitn(3, '/').collect::<Vec<_>>();
-        match split.as_slice() {
-            [ns, kind, name] => match kind.as_ref() {
-                "deploy" | "deployment" => Ok(Self::Deployment(name.to_string(), Some(ns.to_string()))),
-                "sts" | "statefulset" => Ok(Self::StatefulSet(name.to_string(), Some(ns.to_string()))),
-                "ds" | "daemonset" => Ok(Self::DaemonSet(name.to_string(), Some(ns.to_string()))),
-                _ => anyhow::bail!("unknown kind"),
-            },
-            [kind, name] => match kind.as_ref() {
-                "deploy" | "deployment" => Ok(Self::Deployment(name.to_string(), None)),
-                "sts" | "statefulset" => Ok(Self::StatefulSet(name.to_string(), None)),
-                "ds" | "daemonset" => Ok(Self::DaemonSet(name.to_string(), None)),
-                _ => anyhow::bail!("unknown kind"),
-            },
-            _ => anyhow::bail!("unknown workload. typo? we support deploy + sts"),
+        let (ns, kind, name) = match split.as_slice() {
+            [ns, kind, name] => (Some(ns.to_string()), kind.to_string(), name.to_string()),
+            [kind, name] => (None, kind.to_string(), name.to_string()),
+            _ => anyhow::bail!("unknown workload split; syntax: kind/name or ns/kind/name"),
+        };
+        match kind.as_ref() {
+            "deploy" | "deployment" => Ok(Self::Deployment(name, ns)),
+            "sts" | "statefulset" => Ok(Self::StatefulSet(name, ns)),
+            "ds" | "daemonset" => Ok(Self::DaemonSet(name, ns)),
+            _ => anyhow::bail!("unknown kind: {kind}. we support deploy/sts/ds"),
         }
     }
 }
@@ -71,28 +67,25 @@ pub struct TrackArgs {
 async fn main() -> anyhow::Result<()> {
     // Ignore SIGPIPE errors to avoid having to use let _ = write! everywhere
     // See https://github.com/rust-lang/rust/issues/46016
-    //#[cfg(unix)]
-    //unsafe {
-    //    libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    //}
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     let cli = <Irt as clap::Parser>::parse();
     match cli.command {
         Command::Track(args) => handle_track(args).await?,
-        //_ => anyhow::bail!("unknow subcommand"),
     }
     Ok(())
 }
 
 async fn handle_track(args: TrackArgs) -> Result<()> {
-    //let mut rx = vec![];
     let client = kube::Client::try_default().await.unwrap();
     for wl in args.workloads {
         let (kind, name, ns) = match wl {
             Workload::Deployment(name, ns) => (Kind::Deployment, name, ns),
             Workload::StatefulSet(name, ns) => (Kind::StatefulSet, name, ns),
-            _ => todo!(),
+            Workload::DaemonSet(name, ns) => (Kind::DaemonSet, name, ns),
         };
-        // TODO: fetch expectation up front
         let r = Rollout {
             name,
             namespace: ns.or_else(|| args.namespace.clone()),
