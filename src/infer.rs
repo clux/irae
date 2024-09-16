@@ -1,7 +1,11 @@
 use crate::{Error, Kind, Result, Rollout, RolloutStrategy};
-use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
-use k8s_openapi::api::core::v1::PodSpec;
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
+use k8s_openapi::{
+    api::{
+        apps::v1::{DaemonSet, Deployment, StatefulSet},
+        core::v1::PodSpec,
+    },
+    apimachinery::pkg::apis::meta::v1::LabelSelector,
+};
 
 #[derive(Clone, Debug)]
 pub struct Inference {

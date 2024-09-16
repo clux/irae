@@ -1,10 +1,12 @@
 use crate::Inference;
-use k8s_openapi::api::apps::v1::RollingUpdateDaemonSet as DsStrategy;
-use k8s_openapi::api::apps::v1::RollingUpdateDeployment as DeployStrategy;
-use k8s_openapi::api::apps::v1::RollingUpdateStatefulSetStrategy as StsStrategy;
-use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
-#[allow(unused_imports)]
-use tracing::{debug, error, info, trace, warn};
+use k8s_openapi::{
+    api::apps::v1::{
+        RollingUpdateDaemonSet as DsStrategy, RollingUpdateDeployment as DeployStrategy,
+        RollingUpdateStatefulSetStrategy as StsStrategy,
+    },
+    apimachinery::pkg::util::intstr::IntOrString,
+};
+#[allow(unused_imports)] use tracing::{debug, error, info, trace, warn};
 
 /// Analogue of IntOrString specific to rollout parameters
 #[derive(Debug, Clone)]

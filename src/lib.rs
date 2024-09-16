@@ -43,8 +43,7 @@ pub mod estimate;
 pub use estimate::RolloutStrategy;
 mod infer;
 pub use infer::Inference;
-#[cfg(feature = "term")]
-pub mod term;
+#[cfg(feature = "term")] pub mod term;
 
 pub fn version_label<K: Resource>(k: &K) -> Result<Version> {
     if let Some(v) = k.labels().get("app.kubernetes.io/version") {

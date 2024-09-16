@@ -1,12 +1,12 @@
-use crate::{estimate, Kind, Rollout, State, StatefulSummary};
-use crate::{Error, Result};
+use crate::{estimate, Error, Kind, Result, Rollout, State, StatefulSummary};
 use indicatif::{ProgressBar, ProgressStyle};
-use kube::core::{Expression, Selector};
-use kube::ResourceExt;
+use kube::{
+    core::{Expression, Selector},
+    ResourceExt,
+};
 use std::time::Duration;
 use tokio::time::sleep;
-#[allow(unused_imports)]
-use tracing::{debug, error, info, trace, warn};
+#[allow(unused_imports)] use tracing::{debug, error, info, trace, warn};
 
 // ----------------------------------------------------------------------------
 // indicatif tracker loop

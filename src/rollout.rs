@@ -1,10 +1,12 @@
 use crate::{version_label, Error, Kind, Result, Rollout};
 
-use k8s_openapi::api::{
-    apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
-    core::v1::{Container, Pod, PodTemplateSpec},
+use k8s_openapi::{
+    api::{
+        apps::v1::{DaemonSet, Deployment, ReplicaSet, StatefulSet},
+        core::v1::{Container, Pod, PodTemplateSpec},
+    },
+    apimachinery::pkg::apis::meta::v1::Time as K8sTime,
 };
-use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time as K8sTime;
 use kube::{
     api::{ListParams, LogParams},
     core::{NamespaceResourceScope, ObjectList, Selector},
@@ -15,8 +17,7 @@ use serde::de::DeserializeOwned;
 //use std::time::Instant;
 //use time::{ext::InstantExt, Duration};
 use time::Duration;
-#[allow(unused_imports)]
-use tracing::{debug, error, info, warn};
+#[allow(unused_imports)] use tracing::{debug, error, info, warn};
 
 // helpers to do kube api queries
 impl Rollout {
@@ -30,6 +31,7 @@ impl Rollout {
             Api::default_namespaced(self.client.clone())
         }
     }
+
     /// Determine the currently leading replicaset
     ///
     /// Use standard label app.kubernetes.io/version to determine replicaset to track
@@ -50,6 +52,7 @@ impl Rollout {
         }
         Ok(best)
     }
+
     pub async fn get_rs(&self, selector: &Selector) -> Result<Option<ReplicaSet>> {
         let lp = ListParams::default().labels_from(&selector);
         let rs = self.ns().list(&lp).await.map_err(Error::Kube)?;
@@ -67,10 +70,12 @@ impl Rollout {
         let deploy = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(deploy)
     }
+
     pub async fn get_statefulset(&self) -> Result<StatefulSet> {
         let sts = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(sts)
     }
+
     pub async fn get_daemonset(&self) -> Result<DaemonSet> {
         let sts = self.ns().get(&self.name).await.map_err(Error::Kube)?;
         Ok(sts)

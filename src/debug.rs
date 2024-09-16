@@ -1,12 +1,12 @@
 //! debug rollout failures for potential reasons
-use crate::rollout::{PodSummary, ReplicaSetSummary};
-use crate::{Error, Result};
-use crate::{Kind, Rollout, State};
+use crate::{
+    rollout::{PodSummary, ReplicaSetSummary},
+    Error, Kind, Result, Rollout, State,
+};
 
 use k8s_openapi::api::core::v1::Pod;
 use kube::core::ObjectList;
-#[allow(unused_imports)]
-use tracing::{debug, error, info, warn};
+#[allow(unused_imports)] use tracing::{debug, error, info, warn};
 
 impl Rollout {
     /// Debug why a workload is in the state it is in

@@ -1,5 +1,4 @@
-use irae::Result;
-use irae::{Kind, Rollout};
+use irae::{Kind, Result, Rollout};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, PartialEq)]
