@@ -39,7 +39,7 @@ serde_json = "1.0.133"
 serde_yaml = "0.9.34"
 kube = { version = "0.97.0", features = ["runtime"] }
 thiserror = "2.0.7"
-chrono = { version = "0.4.38", default-features = false }
+chrono = { version = "0.4.39", default-features = false }
 time = { version = "0.3.37", features = ["serde-well-known", "macros"] }
 semver = "1.0.24"
 k8s-openapi = { version = "0.23.0", features = ["latest"] }
