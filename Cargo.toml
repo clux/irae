@@ -48,5 +48,5 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", optional = true }
 clap = { version = "4.5", features = ["cargo", "derive"], optional = true }
 clap_complete = { version = "4.5", optional = true }
-anyhow = { version = "1.0.98", optional = true }
+anyhow = { version = "1.0.99", optional = true }
 libc = { version = "0.2.174", optional = true }
